@@ -1,0 +1,6 @@
+dataset/**/*.bin
+dataset/**/meta.pkl
+dataset/**/inputs/
+outputs/
+__pycache__/
+.vscode
