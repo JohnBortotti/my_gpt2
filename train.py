@@ -56,7 +56,7 @@ def estimate_loss(model):
         for k in range(eval_iters):
             X, Y = get_batch(split)
             with ctx:
-                logits, loss = model(X, Y)
+                logits, loss, kv_cache = model(X, Y)
             losses[k] = loss.item()
         out[split] = losses.mean()
     model.train()
@@ -135,7 +135,7 @@ def train():
     
         for micro_step in range(gradient_accumulation_steps):
             with ctx:
-                logits, loss = model(X, Y)
+                logits, loss, kv_cache = model(X, Y)
                 loss = loss / gradient_accumulation_steps
 
             X, Y = get_batch('train')

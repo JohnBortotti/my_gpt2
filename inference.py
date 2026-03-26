@@ -13,6 +13,7 @@ top_k = 5
 device = 'mps'
 device_type = 'cpu'
 dtype = 'float16'
+use_kv_cache = True
 ctx = nullcontext()
 
 ckpt_path = os.path.join(out_dir, 'ckpt.pt')
@@ -44,6 +45,6 @@ x = (torch.tensor(start_ids, dtype=torch.long, device=device) [None, ...])
 with torch.no_grad():
     with ctx:
         for k in range(num_samples):
-            y = model.generate(x, max_new_tokens, temperature=temperature, top_k=top_k)
+            y = model.generate(x, max_new_tokens, temperature=temperature, top_k=top_k, use_kv_cache=use_kv_cache)
             print(decode(y[0].tolist()))
             print('-------------')

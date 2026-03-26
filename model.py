@@ -43,7 +43,7 @@ class CausalSelfAttention(nn.Module):
 
         self.flash = True
 
-    def forward(self, x):
+    def forward(self, x, kv_cache=None):
         B, T, C = x.size()
 
         q, k, v = self.c_attn(x).split(self.n_embd, dim=2)
@@ -54,13 +54,18 @@ class CausalSelfAttention(nn.Module):
         k = k.view(B, T, self.n_head, head_size).transpose(1, 2)
         v = v.view(B, T, self.n_head, head_size).transpose(1, 2)
 
+        if kv_cache is not None:
+            k_cache, v_cache = kv_cache
+            k = torch.cat((k_cache, k), dim=2)
+            v = torch.cat((v_cache, v), dim=2)
+
         if self.flash:
-            y = F.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=self.dropout if self.training else 0, is_causal=True)
+            y = F.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=self.dropout if self.training else 0, is_causal=kv_cache is None)
 
         y = y.transpose(1, 2).contiguous().view(B, T, C)
 
         y = self.resid_dropout(self.c_proj(y))
-        return y
+        return y, (k, v)
     
 class MLP(nn.Module):
 
@@ -86,10 +91,11 @@ class Block(nn.Module):
         self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
         self.mlp = MLP(config)
 
-    def forward(self, x):
-        x = x + self.attn(self.ln_1(x))
+    def forward(self, x, kv_cache=None):
+        attn_out, new_cache = self.attn(self.ln_1(x), kv_cache=kv_cache)
+        x = x + attn_out
         x = x + self.mlp(self.ln_2(x))
-        return x
+        return x, new_cache
 
 class GPT(nn.Module):
     def __init__(self, config):
@@ -135,19 +141,26 @@ class GPT(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx, targets=None):
+    def forward(self, idx, targets=None, kv_cache_list=None):
         device = idx.device
         b, t = idx.size()
 
         assert t <= self.config.block_size, f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
 
-        pos = torch.arange(0, t, dtype=torch.long, device=device)
+        offset = kv_cache_list[0][0].size(2) if kv_cache_list is not None else 0
+        pos = torch.arange(offset, offset + t, dtype=torch.long, device=device)
+
+        if kv_cache_list is None:
+            kv_cache_list = [None] * len(self.transformer.h)
 
         tok_emb = self.transformer.wte(idx)
         pos_emb = self.transformer.wpe(pos)
         x = self.transformer.drop(tok_emb + pos_emb)
-        for block in self.transformer.h:
-            x = block(x)
+        
+        new_kv_cache_list = []
+        for block, kv_cache in zip(self.transformer.h, kv_cache_list):
+            (x, new_kv_cache) = block(x, kv_cache)
+            new_kv_cache_list.append(new_kv_cache)
         x = self.transformer.ln_f(x)
 
         if targets is not None:
@@ -157,7 +170,7 @@ class GPT(nn.Module):
             logits = self.lm_head(x[:, [-1], :])
             loss = None
 
-        return logits, loss
+        return logits, loss, new_kv_cache_list
     
     def configure_optimizers(self, weight_decay, learning_rate, betas, device_type):
         param_dict = {pn: p for pn, p in self.named_parameters()}
@@ -179,18 +192,35 @@ class GPT(nn.Module):
         return optimizer
     
     @torch.no_grad()
-    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None):
-        for _ in range(max_new_tokens):
+    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None, use_kv_cache=True):
+        if use_kv_cache:
             idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
-            logits, _ = self(idx_cond)
-            logits = logits[:, -1, :] / temperature
+            logits, _, kv_cache_list = self(idx_cond)
 
-            if top_k is not None:
-                v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
-                logits[logits < v[:, [-1]]] = -float('Inf')
+            for _ in range(max_new_tokens):
+                logits = logits[:, -1, :] / temperature
 
-            probs = F.softmax(logits, dim=-1)
-            idx_next = torch.multinomial(probs, num_samples=1)
-            idx = torch.cat((idx, idx_next), dim=1)
+                if top_k is not None:
+                    v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+                    logits[logits < v[:, [-1]]] = -float('Inf')
+
+                probs = F.softmax(logits, dim=-1)
+                idx_next = torch.multinomial(probs, num_samples=1)
+                idx = torch.cat((idx, idx_next), dim=1)
+
+                logits, _, kv_cache_list = self(idx_next, kv_cache_list=kv_cache_list)
+        else:
+            for _ in range(max_new_tokens):
+                idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
+                logits, _, kv_cache_list = self(idx_cond)
+                logits = logits[:, -1, :] / temperature
+
+                if top_k is not None:
+                    v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+                    logits[logits < v[:, [-1]]] = -float('Inf')
+
+                probs = F.softmax(logits, dim=-1)
+                idx_next = torch.multinomial(probs, num_samples=1)
+                idx = torch.cat((idx, idx_next), dim=1)
 
         return idx
