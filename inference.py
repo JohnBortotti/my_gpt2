@@ -1,7 +1,7 @@
 import torch
 from contextlib import nullcontext
 import os
-from model import Config, GPT
+from models.nanogpt import Config, GPT
 import pickle
 
 out_dir = "outputs/machado-char"

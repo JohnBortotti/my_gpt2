@@ -3,7 +3,7 @@ import numpy as np
 import torch
 from contextlib import nullcontext
 import pickle
-from model import Config, GPT
+from models.nanogpt import Config, GPT
 import math
 import time
 
