@@ -7,9 +7,9 @@ learning playground for LLM internals
 ### inference efficiency
 - [x] kv cache
 - quantization
-  - [x] absmax (tensor-wise)
+  - [x] absmax
   - [x] zero-point
-  - [ ] LLM.int8
+  - [x] LLM.int8
   - [ ] 4-bit (NF4 / GPTQ)
   - [ ] quantization-aware training
   - [ ] TurboQuant

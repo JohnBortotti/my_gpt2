@@ -6,7 +6,7 @@ import pickle
 
 out_dir = "outputs/machado-char"
 start = "Meu caro amigo "
-num_samples = 2
+num_samples = 3
 max_new_tokens = 500
 temperature = 0.9
 top_k = 5
