@@ -10,10 +10,10 @@ num_samples = 3
 max_new_tokens = 500
 temperature = 0.9
 top_k = 5
-device = 'mps'
+device = 'cuda'
 device_type = 'cpu'
 dtype = 'float16'
-use_kv_cache = True
+use_kv_cache = False
 ctx = nullcontext()
 
 ckpt_path = os.path.join(out_dir, 'ckpt.pt')

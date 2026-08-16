@@ -1,16 +1,17 @@
 import torch
 from models.nanogpt import GPT, Config
-from quantization.absmax_zeropoint import absmax_quantize, zeropoint_quantize
+from quantization.absmax_zeropoint import absmax_quantize, absmax_quantize_4bits, zeropoint_quantize
+from quantization.perplexity import perplexity
 import numpy as np
 from copy import deepcopy
 import os
 import pickle
 from contextlib import nullcontext
 
-device = 'mps'
+device = 'cuda'
 ctx = nullcontext()
 
-checkpoint = torch.load('outputs/machado-char/ckpt.pt')
+checkpoint = torch.load('outputs/machado-char/ckpt.pt', map_location=device)
 
 config = Config(**checkpoint['model_args'])
 model = GPT(config)
@@ -23,6 +24,7 @@ model.load_state_dict(state_dict)
 
 weights = [param.data.clone() for param in model.parameters()]
 
+# absmax 8 bits
 model_abs = deepcopy(model)
 weights_abs = []
 for param in model_abs.parameters():
@@ -30,12 +32,21 @@ for param in model_abs.parameters():
     param.data = dequantized
     weights_abs.append(dequantized)
 
+# zeropoint 8 bits
 model_zp = deepcopy(model)
 weights_zp = []
 for param in model_zp.parameters():
     _, dequantized = zeropoint_quantize(param)
     param.data = dequantized
     weights_zp.append(dequantized)
+
+# absmax 4 bits
+model_abs4 = deepcopy(model)
+weights_abs = []
+for param in model_abs4.parameters():
+    _, dequantized = absmax_quantize_4bits(param)
+    param.data = dequantized
+    weights_abs.append(dequantized)
 
 def generate_text(model):
     input_text = "bom dia"
@@ -61,11 +72,21 @@ def generate_text(model):
                 print(decode(y[0].tolist()))
                 print('-------------')
 
-print("Full precision model:")
-generate_text(model)
+# print("Full precision model:")
+# generate_text(model)
+#
+# print("\nAbsmax quant model:")
+# generate_text(model_abs)
+#
+# print("\nZeropoint quant model:")
+# generate_text(model_zp)
+#
+# print("\nAbsmax (4 bits) quant model:")
+# generate_text(model_abs4)
 
-print("\nAbsmax quant model:")
-generate_text(model_abs)
 
-print("\nZeropoint quant model:")
-generate_text(model_zp)
+# print("\nPerplexity:")
+print(f"Full precision model: {perplexity(model)}")
+print(f"Absmax: {perplexity(model_abs)}")
+print(f"ZeroPoint: {perplexity(model_zp)}")
+print(f"Absmax (4 bits): {perplexity(model_abs4)}")
